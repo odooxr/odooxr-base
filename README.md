@@ -1,0 +1,1 @@
+# odooxr-base

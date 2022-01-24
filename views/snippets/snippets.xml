@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+<!-- Snippets menu -->
+<template id="vr_portal_snippet" inherit_id="website.snippets">
+    <xpath expr="//div[@id='snippet_structure']/div[hasclass('o_panel_body')]" position="inside">
+        <t t-snippet="odooxr-base.s_vr_portal" t-thumbnail="/odooxr-base/static/src/img/snippets_thumbs/s_cover.svg"/>
+    </xpath>
+</template>
+</odoo>
