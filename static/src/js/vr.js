@@ -70,7 +70,7 @@ function onSessionStarted(session) {
       xrCompatible: true
     });
     // Set style
-    gl.canvas.style.cssText += "top: 0px;position: absolute;margin-left: auto;margin-right: auto;left: 0px;right: 0px;"
+    gl.canvas.style.cssText += "top: 0px;position: absolute;margin-left: auto;margin-right: auto;left: 0px;right: 0px;; widht: 100%; height: 100%"
 
     // In order for an inline session to be used we must attach the WebGL
     // canvas to the document, which will serve as the output surface for
