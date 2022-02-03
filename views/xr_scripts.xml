@@ -4,7 +4,8 @@
 <template id="scripts" name="VR Scripts" inherit_id="portal.frontend_layout">
     <xpath expr="//head" position="after">
         <script type="module">
-             import {initXR} from '/odooxr-base/static/src/js/vr.js';
+             import {initXRPortal} from '/odooxr-base/static/src/js/vr.js';
+	     initXRPortal()
         </script> 
     </xpath>
 </template>

@@ -6,13 +6,11 @@ import {SkyboxNode} from './render/nodes/skybox.js';
 import {mat4, vec3, quat} from './render/math/gl-matrix.js';
 import {QueryArgs} from './util/query-args.js';
 
-
 import WebXRPolyfill from './third-party/webxr-polyfill/build/webxr-polyfill.module.js';
 if (QueryArgs.getBool('usePolyfill', true)) {
-  let polyfill = new WebXRPolyfill();
+   let polyfill = new WebXRPolyfill();
 }
 
-let webxrPolyfill = null;
 let inlineSession = null;
 
 // XR globals.
@@ -28,38 +26,37 @@ let solarSystem = new Gltf2Node({url: '/odooxr-base/static/media/gltf/space/spac
 scene.addNode(solarSystem);
 scene.addNode(new SkyboxNode({url: '/odooxr-base/static/media/textures/milky-way-4k.png'}));
 
+export function initXR() {
+  xrButton = new WebXRButton({
+    onRequestSession: onRequestSession,
+    onEndSession: onEndSession
+  });
+  xrButton.domElement.style.cssText += "left: 50%;transform: translateX(-50%);";
 
-function getXR(usePolyfill) {
-  let tempXR;
+  document.querySelector('#vr-canvas').appendChild(xrButton.domElement);
 
-  switch(usePolyfill) {
-    case "if-needed":
-      tempXR = navigator.xr;
-      if (!tempXR) {
-        webxrPolyfill = new WebXRPolyfill();
-        tempXR = webxrPolyfill;
-      }
-      break;
-    case "yes":
-      webxrPolyfill = new WebXRPolyfill();
-      tempXR = webxrPolyfill;
-      break;
-    case "no":
-    default:
-      tempXR = navigator.xr;
-      break;
+  if (navigator.xr) {
+    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+      xrButton.enabled = supported;
+    });
+
+    // Start up an inline session, which should always be supported on
+    // browsers that support WebXR regardless of the available hardware.
+    navigator.xr.requestSession('inline').then((session) => {
+      inlineSession = session;
+      onSessionStarted(session);
+    });
   }
-
-  return tempXR;
 }
 
-async function createImmersiveSession(xr) {
-  try {
-    session = await xr.requestSession("immersive-vr");
-    return session;
-  } catch(error) {
-    throw error;
-  }
+function onRequestSession() {
+  return navigator.xr.requestSession('immersive-vr').then((session) => {
+    xrButton.setSession(session);
+    // Set a flag on the session so we can differentiate it from the
+    // inline session.
+    session.isImmersive = true;
+    onSessionStarted(session);
+  });
 }
 
 function onSessionStarted(session) {
@@ -119,39 +116,6 @@ function onSessionStarted(session) {
   });
 }
 
-export function initXR() {
-  xrButton = new WebXRButton({
-    onRequestSession: onRequestSession,
-    onEndSession: onEndSession
-  });
-  xrButton.domElement.style.cssText += "left: 50%;transform: translateX(-50%);";
-
-  document.querySelector('#vr-canvas').appendChild(xrButton.domElement);
-
-  if (navigator.xr) {
-    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
-      xrButton.enabled = supported;
-    });
-
-    // Start up an inline session, which should always be supported on
-    // browsers that support WebXR regardless of the available hardware.
-    navigator.xr.requestSession('inline').then((session) => {
-      inlineSession = session;
-      onSessionStarted(session);
-    });
-  }
-}
-
-function onRequestSession() {
-  return navigator.xr.requestSession('immersive-vr').then((session) => {
-    xrButton.setSession(session);
-    // Set a flag on the session so we can differentiate it from the
-    // inline session.
-    session.isImmersive = true;
-    onSessionStarted(session);
-  });
-}
-
 function onEndSession(session) {
   session.end();
 }
@@ -161,6 +125,75 @@ function onSessionEnded(event) {
   if (event.session.isImmersive) {
     xrButton.setSession(null);
   }
+}
+
+// Called every time a XRSession requests that a new frame be drawn.
+function onXRFrame(t, frame) {
+  let session = frame.session;
+  // Ensure that we're using the right frame of reference for the session.
+  let refSpace = session.isImmersive ?
+                   xrImmersiveRefSpace :
+                   xrInlineRefSpace;
+
+  // Account for the click-and-drag mouse movement or touch movement when
+  // calculating the viewer pose for inline sessions.
+  if (!session.isImmersive) {
+    refSpace = getAdjustedRefSpace(refSpace);
+  }
+
+  let pose = frame.getViewerPose(refSpace);
+
+  scene.startFrame();
+
+  session.requestAnimationFrame(onXRFrame);
+
+  if (pose) {
+    let glLayer = session.renderState.baseLayer;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    for (let view of pose.views) {
+      let viewport = glLayer.getViewport(view);
+      gl.viewport(viewport.x, viewport.y,
+                  viewport.width, viewport.height);
+
+      scene.draw(view.projectionMatrix, view.transform);
+    }
+  }
+
+  scene.endFrame();
+}
+
+// Inline view adjustment code
+// Allow the user to click and drag the mouse (or touch and drag the
+// screen on handheld devices) to adjust the viewer pose for inline
+// sessions. Samples after this one will hide this logic with a utility
+// class (InlineViewerHelper).
+let lookYaw = 0;
+let lookPitch = 0;
+const LOOK_SPEED = 0.0025;
+
+// XRReferenceSpace offset is immutable, so return a new reference space
+// that has an updated orientation.
+function getAdjustedRefSpace(refSpace) {
+  // Represent the rotational component of the reference space as a
+  // quaternion.
+  let invOrientation = quat.create();
+  quat.rotateX(invOrientation, invOrientation, -lookPitch);
+  quat.rotateY(invOrientation, invOrientation, -lookYaw);
+  let xform = new XRRigidTransform(
+      {x: 0, y: 0, z: 0},
+      {x: invOrientation[0], y: invOrientation[1], z: invOrientation[2], w: invOrientation[3]});
+  return refSpace.getOffsetReferenceSpace(xform);
+}
+
+function rotateView(dx, dy) {
+  lookYaw += dx * LOOK_SPEED;
+  lookPitch += dy * LOOK_SPEED;
+  if (lookPitch < -Math.PI*0.5)
+      lookPitch = -Math.PI*0.5;
+  if (lookPitch > Math.PI*0.5)
+      lookPitch = Math.PI*0.5;
 }
 
 
@@ -227,81 +260,16 @@ function addInlineViewListeners(canvas) {
   });
 }
 
-// Called every time a XRSession requests that a new frame be drawn.
-function onXRFrame(t, frame) {
-  let session = frame.session;
-  // Ensure that we're using the right frame of reference for the session.
-  let refSpace = session.isImmersive ?
-                   xrImmersiveRefSpace :
-                   xrInlineRefSpace;
+export function initXRPortal() {
+	odoo.define('odooxr-base.website', ["web.core"], function(require) {
+	   "use strict";
 
-  // Account for the click-and-drag mouse movement or touch movement when
-  // calculating the viewer pose for inline sessions.
-  if (!session.isImmersive) {
-    refSpace = getAdjustedRefSpace(refSpace);
-  }
+	   var core = require('web.core');
 
-  let pose = frame.getViewerPose(refSpace);
-
-  scene.startFrame();
-
-  session.requestAnimationFrame(onXRFrame);
-
-  if (pose) {
-    let glLayer = session.renderState.baseLayer;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    for (let view of pose.views) {
-      let viewport = glLayer.getViewport(view);
-      gl.viewport(viewport.x, viewport.y,
-                  viewport.width, viewport.height);
-
-      scene.draw(view.projectionMatrix, view.transform);
-    }
-  }
-
-  scene.endFrame();
+	   $(document).ready(() => {
+		   console.info("Starting XR environment")
+		   initXR();
+	   });
+	})
 }
-
-
-// Inline view adjustment code
-// Allow the user to click and drag the mouse (or touch and drag the
-// screen on handheld devices) to adjust the viewer pose for inline
-// sessions. Samples after this one will hide this logic with a utility
-// class (InlineViewerHelper).
-let lookYaw = 0;
-let lookPitch = 0;
-const LOOK_SPEED = 0.0025;
-
-// XRReferenceSpace offset is immutable, so return a new reference space
-// that has an updated orientation.
-function getAdjustedRefSpace(refSpace) {
-  // Represent the rotational component of the reference space as a
-  // quaternion.
-  let invOrientation = quat.create();
-  quat.rotateX(invOrientation, invOrientation, -lookPitch);
-  quat.rotateY(invOrientation, invOrientation, -lookYaw);
-  let xform = new XRRigidTransform(
-      {x: 0, y: 0, z: 0},
-      {x: invOrientation[0], y: invOrientation[1], z: invOrientation[2], w: invOrientation[3]});
-  return refSpace.getOffsetReferenceSpace(xform);
-}
-
-function rotateView(dx, dy) {
-  lookYaw += dx * LOOK_SPEED;
-  lookPitch += dy * LOOK_SPEED;
-  if (lookPitch < -Math.PI*0.5)
-      lookPitch = -Math.PI*0.5;
-  if (lookPitch > Math.PI*0.5)
-      lookPitch = Math.PI*0.5;
-}
-
-odoo.define('odooxr-base.website', ["web.core"], function(require) {
-   "use strict";
-
-   var core = require('web.core');
-
-   $(document).ready(() => { initXR(); });
-})
 
