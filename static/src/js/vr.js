@@ -22,6 +22,10 @@ let xrInlineRefSpace = null;
 let gl = null;
 let renderer = null;
 let scene = new Scene();
+
+export function setupScene(setupFunction) {
+    setupFunction(scene);
+}
 let solarSystem = new Gltf2Node({url: '/odooxr-base/static/media/gltf/space/space.gltf'});
 scene.addNode(solarSystem);
 scene.addNode(new SkyboxNode({url: '/odooxr-base/static/media/textures/milky-way-4k.png'}));
@@ -259,17 +263,3 @@ function addInlineViewListeners(canvas) {
     }
   });
 }
-
-export function initXRPortal() {
-	odoo.define('odooxr-base.website', ["web.core"], function(require) {
-	   "use strict";
-
-	   var core = require('web.core');
-
-	   $(document).ready(() => {
-		   console.info("Starting XR environment")
-		   initXR();
-	   });
-	})
-}
-
