@@ -37,7 +37,15 @@ export function initXR() {
   });
   xrButton.domElement.style.cssText += "left: 50%;transform: translateX(-50%);";
 
-  document.querySelector('#vr-canvas').appendChild(xrButton.domElement);
+  const canvas = document.querySelector('#vr-canvas');
+
+  if (!canvas) {
+    console.log("No vr-canvas enabled.")
+    return;
+  }
+  console.log("With vr-canvas.")
+
+  canvas.appendChild(xrButton.domElement);
 
   if (navigator.xr) {
     navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
